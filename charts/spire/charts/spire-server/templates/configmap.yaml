@@ -1,5 +1,6 @@
 {{- define "spire-server.yaml-config" -}}
 {{- $upstreamAuthorityUsed := 0 }}
+{{- $keyManagerUsed := 0 }}
 {{- $root := . }}
 server:
   bind_address: "0.0.0.0"
@@ -47,10 +48,48 @@ plugins:
   {{- end }}
   {{- end }}
 
+  {{- with .Values.keyManager.disk }}
+  {{- if eq (.enabled | toString) "true" }}
+  {{- $keyManagerUsed = add1 $keyManagerUsed }}
   KeyManager:
     - disk:
         plugin_data:
           keys_path: "/run/spire/data/keys.json"
+  {{- end }}
+  {{- end }}
+
+  {{- with .Values.keyManager.memory }}
+  {{- if eq (.enabled | toString) "true" }}
+  {{- $keyManagerUsed = add1 $keyManagerUsed }}
+  KeyManager:
+    - memory:
+        plugin_data:
+  {{- end }}
+  {{- end }}
+
+  {{- with .Values.keyManager.awsKMS }}
+  {{- if eq (.enabled | toString) "true" }}
+  {{- $keyManagerUsed = add1 $keyManagerUsed }}
+  KeyManager:
+    - aws_kms:
+        plugin_data:
+          region: {{ .region | quote }}
+          key_metadata_file: "/run/spire/data/aws-kms-key-metadata"
+          {{- if ne .accessKeyID "" }}
+          access_key_id: "${AWS_KMS_ACCESS_KEY_ID}"
+          {{- end }}
+          {{- if ne .secretAccessKey "" }}
+          secret_access_key: "${AWS_KMS_SECRET_ACCESS_KEY}"
+          {{- end }}
+          {{- if or (ne .keyPolicy.policy "") (ne .keyPolicy.existingConfigMap "") }}
+          key_policy_file: "/run/spire/data/aws-kms-key-policy.json"
+          {{- end }}
+  {{- end }}
+  {{- end }}
+
+{{- if ne $keyManagerUsed 1 }}
+{{- fail (printf "You have to enable exactly one Key Manager. There are %d enabled." $keyManagerUsed) }}
+{{- end }}
 
   Notifier:
     - k8sbundle:
@@ -94,7 +133,7 @@ plugins:
   UpstreamAuthority:
     - spire:
         plugin_data:
-          server_address: {{ .server.address | quote }}
+          server_address: {{ include "spire-server.upstream-spire-address" $root | quote }}
           server_port: {{ .server.port }}
           workload_api_socket: "/run/spire/upstream_agent/spire-agent.sock"
   {{- end }}
